@@ -14,7 +14,7 @@ These attempts do not cover every failure:
 - The runner process can terminate after Docker creates a container and before normal cleanup completes.
 - The Docker daemon can be unavailable during removal.
 - A deferred retry is best-effort; its own failure cannot be treated as cleanup success.
-- The runner instance ID is supplied by the caller and must be provisioned as stable installation identity; production configuration and secret/identity provisioning are not yet wired into `cmd/runner`.
+- The runner instance ID is now a required, validated `RUNNER_INSTANCE_ID` in foreground runner configuration. It must be generated once with a cryptographically secure random generator and persisted in a protected service environment file across restarts. The foreground process validates it but does not yet pass it into an enabled Docker executor; student execution remains disabled.
 - A read-only exact-label discovery library now queries both runner-instance and lifecycle labels, then independently inspects each full container ID and verifies the labels. It correlates results with pending journal records and reports mismatches/ambiguity. It is a dry-run library only: there is no CLI, no host-level ownership lock, and no deletion path.
 - The local acceptance journal records dispatch receipt lifecycle, not Docker container IDs or sandbox lifecycle transitions.
 
@@ -65,7 +65,7 @@ The implementation must be reviewed as a separate safety change and should inclu
 
 - A cryptographically random, installation-specific runner instance ID, generated/provisioned outside student-controlled input.
 - Docker labels for both the runner instance and execution ID. Labels are identifiers, not authorization by themselves.
-- Wire stable runner-instance identity provisioning into the foreground runner configuration and document rotation/replacement behavior. The journal and Docker labels now carry this identity.
+- Complete the handoff of the configured stable runner-instance ID into the future journaled Docker executor, then document and test identity rotation/replacement behavior. The sandbox journal and Docker labels already support this identity.
 - Extend the current read-only discovery library into an operator command with retained evidence output. It already queries both exact runner-instance and lifecycle-ID labels, inspects each full ID, and correlates candidates with pending records; the create-intent-without-container-ID window is reported as an operator-review candidate.
 - An operator-invoked, dry-run-first reconciler that lists exact owned candidates, requires proof that the previous process is stopped, and refuses ambiguous ownership. No automatic startup janitor.
 - An exclusive host-level ownership lock shared by normal execution and reconciliation. Reconciliation must fail closed if lock ownership is ambiguous.
