@@ -89,7 +89,7 @@ This package is a validated configuration boundary. The foreground process loads
 ```bash
 install -d -m 0700 /etc/skyhigh
 umask 077
-printf 'RUNNER_INSTANCE_ID=%s\\n' "$(openssl rand -hex 16)" > /etc/skyhigh/runner-instance.env
+printf 'RUNNER_INSTANCE_ID=%s\n' "$(openssl rand -hex 16)" > /etc/skyhigh/runner-instance.env
 chmod 0600 /etc/skyhigh/runner-instance.env
 ```
 
