@@ -80,10 +80,20 @@ The `internal/runnerconfig` package validates the environment contract for a fut
 - `RUNNER_KEY_ID`: a bounded key identifier matching the signed-request protocol.
 - `RUNNER_PRIVATE_KEY_FILE`: an absolute path to a private key file accepted by the strict Linux `runnerauth.LoadPrivateKeyFile` loader.
 - `RUNNER_JOURNAL_PATH`: an absolute, non-root path for the append-only acceptance journal.
+- `RUNNER_INSTANCE_ID`: a stable, installation-specific 32-character lowercase-hex identifier. It is distinct from the signing key ID and is used to scope sandbox lifecycle labels and recovery ownership.
 
-All four settings are mandatory. The loader rejects credentialed URLs, URL paths, query strings, fragments, invalid key IDs and relative file paths. It never returns key contents in errors. Call `Config.Destroy()` when the configuration is no longer needed; it overwrites the in-memory private-key bytes and clears the reference.
+All five settings are mandatory. The loader rejects credentialed URLs, URL paths, query strings, fragments, invalid key IDs and relative file paths. It never returns key contents in errors. Call `Config.Destroy()` when the configuration is no longer needed; it overwrites the in-memory private-key bytes and clears the reference.
 
-This package is a validated configuration boundary only. It does not start the worker, open the journal, contact the control plane or enable the sandbox. The `cmd/runner` process remains health-only until a separately reviewed foreground worker mode is implemented.
+This package is a validated configuration boundary. The foreground process loads and validates the stable runner instance ID alongside its signing identity. Provision the ID once using a cryptographically secure random generator, store it in a root/runner-owned environment file with mode `0600`, and preserve it across restarts. Do not generate a new ID on every process start. Example on the dedicated Linux host:
+
+```bash
+install -d -m 0700 /etc/skyhigh
+umask 077
+printf 'RUNNER_INSTANCE_ID=%s\\n' "$(openssl rand -hex 16)" > /etc/skyhigh/runner-instance.env
+chmod 0600 /etc/skyhigh/runner-instance.env
+```
+
+Load that file through the service manager's environment-file mechanism. Back it up as installation metadata (not as a signing secret); replacing the runner installation requires an explicit identity-rotation and orphan-reconciliation procedure. The ID is currently validated at foreground startup but is not yet connected to an enabled Docker executor or automatic cleanup. This does not enable student execution.
 
 ## Current runner control-plane client
 
