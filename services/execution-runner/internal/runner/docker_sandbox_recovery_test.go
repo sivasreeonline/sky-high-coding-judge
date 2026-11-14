@@ -163,3 +163,52 @@ func TestOSCommandDockerCLIDiscoveryRejectsInspectLabelMismatch(t *testing.T) {
 		t.Fatalf("mismatched inspect labels error = %v, want ErrDockerCommandFailed", err)
 	}
 }
+
+
+func TestDiscoverPendingDockerLifecyclesFlagsAmbiguousAndMismatchedContainers(t *testing.T) {
+	tests := []struct {
+		name string
+		containers []DiscoveredDockerContainer
+		want string
+	}{
+		{
+			name: "multiple exact-label matches",
+			containers: []DiscoveredDockerContainer{
+				{ID: strings.Repeat("b", 64), State: "running"},
+				{ID: strings.Repeat("c", 64), State: "exited"},
+			},
+			want: "AMBIGUOUS_MULTIPLE_MATCHES — operator review required",
+		},
+		{
+			name: "journal container ID differs",
+			containers: []DiscoveredDockerContainer{
+				{ID: strings.Repeat("c", 64), State: "exited"},
+			},
+			want: "CONTAINER_ID_MISMATCH — operator review required",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			sandbox, err := newJournaledTestSandbox(t, &fakeDockerCLI{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			runnerID := strings.Repeat("a", 32)
+			lifecycleID, err := sandbox.journal.Begin(runnerID, "exec_recovery_test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := sandbox.journal.Created(lifecycleID, strings.Repeat("b", 64)); err != nil {
+				t.Fatal(err)
+			}
+			discoverer := &fakeLifecycleDiscoverer{containers: test.containers}
+			results, err := DiscoverPendingDockerLifecycles(context.Background(), sandbox.journal, discoverer, runnerID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(results) != 1 || results[0].Assessment != test.want {
+				t.Fatalf("assessment = %+v, want %q", results, test.want)
+			}
+		})
+	}
+}
