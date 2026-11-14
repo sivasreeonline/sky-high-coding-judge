@@ -13,7 +13,10 @@ import (
 	"github.com/sivasreeonline/orbit-engine/services/execution-runner/internal/runnerauth"
 )
 
-var keyIDPattern = regexp.MustCompile("^[A-Za-z0-9._:-]{1,128}$")
+var (
+	keyIDPattern = regexp.MustCompile("^[A-Za-z0-9._:-]{1,128}$")
+	runnerInstanceIDPattern = regexp.MustCompile("^[a-f0-9]{32}$")
+)
 
 const (
 	EnvControlPlaneURL = "RUNNER_CONTROL_PLANE_URL"
