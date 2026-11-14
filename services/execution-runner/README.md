@@ -126,7 +126,7 @@ The `DockerSandbox` adapter creates a fresh container per testcase with:
 - a non-root UID/GID (65532:65532), all Linux capabilities dropped and no-new-privileges;
 - bounded memory/swap, CPU quota, PID count, wall time and combined stdout/stderr;
 - a non-executable, nodev/nosuid `/workspace` tmpfs and bounded `/tmp` tmpfs;
-- forced container removal is attempted after completion, timeout, cancellation or output overflow; failures are surfaced, but process-crash/daemon-failure orphan reconciliation is not yet implemented.
+- forced container removal is attempted after completion, timeout, cancellation or output overflow; failures are surfaced. A read-only exact-label discovery library correlates pending journal entries with independently inspected container labels, but it does not delete containers and is not wired to a CLI or startup path.
 
 Student source is not written to a host temporary file or bind-mounted from the host. The runner sends the source bytes first over the container's attached stdin; a fixed wrapper consumes exactly the known source-byte count into `/workspace`, verifies the byte count, makes the file and workspace directory read-only, then leaves the remaining stdin stream for the testcase input. Student source is never interpolated into shell text.
 
