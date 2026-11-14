@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"sort"
 	"strings"
 
 	"github.com/sivasreeonline/orbit-engine/services/execution-runner/internal/sandboxjournal"
@@ -80,6 +81,9 @@ func DiscoverPendingDockerLifecycles(
 		}
 		results = append(results, result)
 	}
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Lifecycle.LifecycleID < results[j].Lifecycle.LifecycleID
+	})
 	return results, nil
 }
 
