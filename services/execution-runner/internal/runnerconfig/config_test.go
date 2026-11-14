@@ -38,6 +38,7 @@ func validValues(keyPath, journalPath string) map[string]string {
 		EnvKeyID: "runner-machine-01",
 		EnvPrivateKeyFile: keyPath,
 		EnvJournalPath: journalPath,
+		EnvRunnerInstanceID: "0123456789abcdef0123456789abcdef",
 	}
 }
 
@@ -47,7 +48,7 @@ func TestLoadRequiresEveryIdentitySetting(t *testing.T) {
 	}
 
 	for _, name := range []string{
-		EnvControlPlaneURL, EnvKeyID, EnvPrivateKeyFile, EnvJournalPath,
+		EnvControlPlaneURL, EnvKeyID, EnvPrivateKeyFile, EnvJournalPath, EnvRunnerInstanceID,
 	} {
 		t.Run(name, func(t *testing.T) {
 			keyPath := filepath.Join(t.TempDir(), "runner.key")
@@ -72,7 +73,8 @@ func TestLoadReturnsValidatedIdentityAndDestroyClearsKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	if config.ControlPlaneURL != "https://control.example.test" ||
-		config.KeyID != "runner-machine-01" || config.JournalPath != journalPath {
+		config.KeyID != "runner-machine-01" || config.JournalPath != journalPath ||
+		config.RunnerInstanceID != "0123456789abcdef0123456789abcdef" {
 		t.Fatalf("unexpected runner config: %+v", config)
 	}
 	if !ed25519.PrivateKey(config.PrivateKey).Equal(expectedKey) {
@@ -124,6 +126,26 @@ func TestLoadAllowsLoopbackHTTPForLocalDevelopment(t *testing.T) {
 		t.Fatal(err)
 	}
 	config.Destroy()
+}
+
+func TestLoadRejectsInvalidRunnerInstanceIDs(t *testing.T) {
+	keyPath := filepath.Join(t.TempDir(), "runner.key")
+	_ = writeConfigKey(t, keyPath)
+	for _, id := range []string{
+		"0123456789abcdef0123456789abcde",
+		"0123456789abcdef0123456789abcdef0",
+		"0123456789ABCDEF0123456789ABCDEF",
+		"0123456789abcdef0123456789abcdeg",
+	} {
+		t.Run(id, func(t *testing.T) {
+			values := validValues(keyPath, filepath.Join(t.TempDir(), "acceptance.jsonl"))
+			values[EnvRunnerInstanceID] = id
+			if config, err := Load(lookupValues(values)); err == nil {
+				config.Destroy()
+				t.Fatalf("invalid runner instance ID %q was accepted", id)
+			}
+		})
+	}
 }
 
 func TestLoadRejectsRelativePathsAndInvalidKeyID(t *testing.T) {
