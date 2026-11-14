@@ -15,7 +15,7 @@ These attempts do not cover every failure:
 - The Docker daemon can be unavailable during removal.
 - A deferred retry is best-effort; its own failure cannot be treated as cleanup success.
 - The runner instance ID is supplied by the caller and must be provisioned as stable installation identity; production configuration and secret/identity provisioning are not yet wired into `cmd/runner`.
-- The lifecycle ID label closes the create-to-journal-ID crash window for future exact-label discovery, but no Docker label discovery or reconciliation command exists yet.
+- A read-only exact-label discovery library now queries both runner-instance and lifecycle labels, then independently inspects each full container ID and verifies the labels. It correlates results with pending journal records and reports mismatches/ambiguity. It is a dry-run library only: there is no CLI, no host-level ownership lock, and no deletion path.
 - The local acceptance journal records dispatch receipt lifecycle, not Docker container IDs or sandbox lifecycle transitions.
 
 Consequently, the system cannot yet prove which container belongs to a particular runner instance or automatically distinguish a crashed runner's container from a live runner's container on a shared daemon.
@@ -66,10 +66,10 @@ The implementation must be reviewed as a separate safety change and should inclu
 - A cryptographically random, installation-specific runner instance ID, generated/provisioned outside student-controlled input.
 - Docker labels for both the runner instance and execution ID. Labels are identifiers, not authorization by themselves.
 - Wire stable runner-instance identity provisioning into the foreground runner configuration and document rotation/replacement behavior. The journal and Docker labels now carry this identity.
-- Add a read-only Docker label discovery interface that queries only the exact runner-instance label and correlates candidates with pending lifecycle records. The create-intent-without-container-ID window must be handled through the lifecycle-ID label.
+- Extend the current read-only discovery library into an operator command with retained evidence output. It already queries both exact runner-instance and lifecycle-ID labels, inspects each full ID, and correlates candidates with pending records; the create-intent-without-container-ID window is reported as an operator-review candidate.
 - An operator-invoked, dry-run-first reconciler that lists exact owned candidates, requires proof that the previous process is stopped, and refuses ambiguous ownership. No automatic startup janitor.
 - An exclusive host-level ownership lock shared by normal execution and reconciliation. Reconciliation must fail closed if lock ownership is ambiguous.
-- A manual, dry-run-first reconciliation command that reports candidates and evidence. Deletion must require explicit operator action and exact full container IDs until automated ownership proof has been independently reviewed.
+- A manual, dry-run-first reconciliation command that reports candidates and evidence. The current implementation is only a library function and does not remove containers. Deletion must require explicit operator action and exact full container IDs until automated ownership proof has been independently reviewed.
 - Tests for daemon unavailable before create, daemon lost after create, process crash at each lifecycle boundary, duplicate runner startup, stale lock, cleanup failure, malformed journal records, and unrelated containers remaining untouched.
 - Real Linux/runsc failure-injection evidence and independent security review before any automatic cleanup path is enabled.
 
