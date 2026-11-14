@@ -53,3 +53,6 @@ jobs:
 
       - name: Unit tests
         run: go test -race -cover ./...
+
+      - name: Compile opt-in Linux runsc qualification suite
+        run: go test -tags=sandboxqualification -run="^$" ./internal/runner

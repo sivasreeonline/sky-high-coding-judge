@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/sivasreeonline/orbit-engine/services/execution-runner/internal/protocol"
+	"github.com/sivasreeonline/orbit-engine/services/execution-runner/internal/sandboxjournal"
 )
 
 type fakeDockerCLI struct {
@@ -96,6 +97,29 @@ func (fake *fakeDockerCLI) Remove(_ context.Context, id string) error {
 	return fake.removeErr
 }
 
+func privateJournalTestPath(t *testing.T, name string) string {
+	t.Helper()
+	directory := t.TempDir()
+	if err := os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(directory, name)
+}
+
+func newJournaledTestSandbox(t *testing.T, cli DockerCLI) (*DockerSandbox, error) {
+	t.Helper()
+	journal, err := sandboxjournal.Open(privateJournalTestPath(t, "sandbox-lifecycle.jsonl"))
+	if err != nil {
+		return nil, err
+	}
+	t.Cleanup(func() {
+		if err := journal.Close(); err != nil {
+			t.Errorf("close sandbox lifecycle journal: %v", err)
+		}
+	})
+	return NewJournaledDockerSandbox(cli, journal, strings.Repeat("a", 32))
+}
+
 func dockerSandboxTestRequest() SandboxRequest {
 	return SandboxRequest{
 		ExecutionID:    "exec_docker_test",
@@ -118,6 +142,15 @@ func dockerSandboxTestRequest() SandboxRequest {
 func containsArgument(args []string, expected string) bool {
 	for _, argument := range args {
 		if argument == expected {
+			return true
+		}
+	}
+	return false
+}
+
+func hasLabelPrefix(args []string, prefix string) bool {
+	for index, argument := range args {
+		if argument == "--label" && index+1 < len(args) && strings.HasPrefix(args[index+1], prefix) {
 			return true
 		}
 	}
@@ -299,7 +332,7 @@ func TestDockerSandboxPreservesSeparateStreamsAndCleansTemporaryWorkspace(t *tes
 		stderr: []byte("program warning\n"),
 		state:  DockerContainerState{Status: "exited", ExitCode: 0},
 	}
-	sandbox, err := NewDockerSandbox(fake)
+	sandbox, err := newJournaledTestSandbox(t, fake)
 	if err != nil {
 		t.Fatalf("NewDockerSandbox: %v", err)
 	}
@@ -325,6 +358,12 @@ func TestDockerSandboxPreservesSeparateStreamsAndCleansTemporaryWorkspace(t *tes
 	}
 	if containsArgument(fake.createArgs, "--mount") {
 		t.Fatalf("host source path unexpectedly passed to Docker: %v", fake.createArgs)
+	}
+	if !containsArgument(fake.createArgs, "com.skyhigh.runner-instance="+strings.Repeat("a", 32)) {
+		t.Fatalf("container missing runner-instance ownership label: %v", fake.createArgs)
+	}
+	if !hasLabelPrefix(fake.createArgs, "com.skyhigh.lifecycle-id=") {
+		t.Fatalf("container missing lifecycle recovery label: %v", fake.createArgs)
 	}
 }
 
@@ -372,7 +411,7 @@ func TestDockerSandboxMapsCompileAndOOMStatuses(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			fake := test.fake
-			sandbox, err := NewDockerSandbox(&fake)
+			sandbox, err := newJournaledTestSandbox(t, &fake)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -397,7 +436,7 @@ func TestDockerSandboxEnforcesCombinedStdoutAndStderrLimit(t *testing.T) {
 		stderr: []byte("abcdef"),
 		state:  DockerContainerState{Status: "exited", ExitCode: 0},
 	}
-	sandbox, err := NewDockerSandbox(fake)
+	sandbox, err := newJournaledTestSandbox(t, fake)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -422,7 +461,7 @@ func TestDockerSandboxEnforcesCombinedStdoutAndStderrLimit(t *testing.T) {
 func TestDockerSandboxTimeoutKillsContainerAndCleansWorkspace(t *testing.T) {
 	t.Parallel()
 	fake := &fakeDockerCLI{waitForContext: true}
-	sandbox, err := NewDockerSandbox(fake)
+	sandbox, err := newJournaledTestSandbox(t, fake)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -445,7 +484,7 @@ func TestDockerSandboxTreatsContainerCleanupFailureAsInfrastructureError(t *test
 		state:     DockerContainerState{Status: "exited", ExitCode: 0},
 		removeErr: errors.New("docker rm failed"),
 	}
-	sandbox, err := NewDockerSandbox(fake)
+	sandbox, err := newJournaledTestSandbox(t, fake)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -565,3 +604,133 @@ func TestSandboxRejectsUntrustedRuntimeAndImageTokens(t *testing.T) {
 	}
 }
 
+
+
+func TestDockerSandboxPersistsCreateIntentBeforeDockerCreate(t *testing.T) {
+	journal, err := sandboxjournal.Open(privateJournalTestPath(t, "lifecycle.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer journal.Close()
+	fake := &fakeDockerCLI{createErr: errors.New("daemon unavailable")}
+	sandbox, err := NewJournaledDockerSandbox(fake, journal, strings.Repeat("c", 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = sandbox.RunCase(context.Background(), dockerSandboxTestRequest())
+	if !errors.Is(err, ErrDockerCommandFailed) {
+		t.Fatalf("RunCase error = %v, want Docker command failure", err)
+	}
+	if !fake.created {
+		t.Fatal("Docker create was not attempted")
+	}
+	if !containsArgument(fake.createArgs, "com.skyhigh.runner-instance="+strings.Repeat("c", 32)) ||
+		!hasLabelPrefix(fake.createArgs, "com.skyhigh.lifecycle-id=") {
+		t.Fatalf("Docker create did not receive ownership and lifecycle labels: %v", fake.createArgs)
+	}
+	pending, err := journal.Pending()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 || pending[0].Created || pending[0].Cleaned {
+		t.Fatalf("failed create intent should remain visible for reconciliation: %+v", pending)
+	}
+}
+
+func TestDockerSandboxRecordsCleanupOnlyAfterDockerConfirmsRemoval(t *testing.T) {
+	path := privateJournalTestPath(t, "lifecycle.jsonl")
+	journal, err := sandboxjournal.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer journal.Close()
+	fake := &fakeDockerCLI{
+		stdout: []byte(compileSuccessMarker + "ok"),
+		state: DockerContainerState{Status: "exited", ExitCode: 0},
+	}
+	sandbox, err := NewJournaledDockerSandbox(fake, journal, strings.Repeat("d", 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation, err := sandbox.RunCase(context.Background(), dockerSandboxTestRequest())
+	if err != nil {
+		t.Fatalf("RunCase: %v", err)
+	}
+	if !observation.CleanupSucceeded || !fake.removed {
+		t.Fatalf("cleanup was not confirmed: %+v", observation)
+	}
+	pending, err := journal.Pending()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("confirmed cleanup remained pending: %+v", pending)
+	}
+}
+
+func TestDockerSandboxLeavesCreatedLifecyclePendingWhenRemovalFails(t *testing.T) {
+	journal, err := sandboxjournal.Open(privateJournalTestPath(t, "lifecycle.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer journal.Close()
+	fake := &fakeDockerCLI{
+		stdout: []byte(compileSuccessMarker + "ok"),
+		state: DockerContainerState{Status: "exited", ExitCode: 0},
+		removeErr: errors.New("daemon unavailable during remove"),
+	}
+	sandbox, err := NewJournaledDockerSandbox(fake, journal, strings.Repeat("e", 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation, err := sandbox.RunCase(context.Background(), dockerSandboxTestRequest())
+	if !errors.Is(err, ErrDockerCommandFailed) {
+		t.Fatalf("RunCase error = %v, want Docker command failure", err)
+	}
+	if observation.CleanupSucceeded {
+		t.Fatal("failed removal was reported as successful")
+	}
+	pending, err := journal.Pending()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 || !pending[0].Created || pending[0].Cleaned ||
+		pending[0].ContainerID != fake.containerID {
+		t.Fatalf("failed cleanup must retain full container identity: %+v", pending)
+	}
+}
+
+func TestDockerSandboxRequiresDurableLifecycleJournal(t *testing.T) {
+	fake := &fakeDockerCLI{}
+	sandbox, err := NewDockerSandbox(fake)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = sandbox.RunCase(context.Background(), dockerSandboxTestRequest())
+	if !errors.Is(err, ErrSandboxNotConfigured) {
+		t.Fatalf("unjournaled sandbox RunCase error = %v, want ErrSandboxNotConfigured", err)
+	}
+	if fake.created {
+		t.Fatal("unjournaled sandbox created a container")
+	}
+}
+
+func TestDockerSandboxRunCaseRejectsNilSandbox(t *testing.T) {
+	t.Parallel()
+
+	var sandbox *DockerSandbox
+	_, err := sandbox.RunCase(context.Background(), dockerSandboxTestRequest())
+	if !errors.Is(err, ErrSandboxNotConfigured) {
+		t.Fatalf("RunCase error = %v, want ErrSandboxNotConfigured", err)
+	}
+}
+
+func TestDockerSandboxRunCaseRejectsMissingCLI(t *testing.T) {
+	t.Parallel()
+
+	sandbox := &DockerSandbox{}
+	_, err := sandbox.RunCase(context.Background(), dockerSandboxTestRequest())
+	if !errors.Is(err, ErrSandboxNotConfigured) {
+		t.Fatalf("RunCase error = %v, want ErrSandboxNotConfigured", err)
+	}
+}
