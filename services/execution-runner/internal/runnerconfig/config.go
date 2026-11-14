@@ -14,23 +14,23 @@ import (
 )
 
 var (
-	keyIDPattern = regexp.MustCompile("^[A-Za-z0-9._:-]{1,128}$")
+	keyIDPattern          = regexp.MustCompile("^[A-Za-z0-9._:-]{1,128}$")
 	runnerInstanceIDPattern = regexp.MustCompile("^[a-f0-9]{32}$")
 )
 
 const (
-	EnvControlPlaneURL = "RUNNER_CONTROL_PLANE_URL"
-	EnvKeyID           = "RUNNER_KEY_ID"
-	EnvPrivateKeyFile  = "RUNNER_PRIVATE_KEY_FILE"
-	EnvJournalPath     = "RUNNER_JOURNAL_PATH"
+	EnvControlPlaneURL  = "RUNNER_CONTROL_PLANE_URL"
+	EnvKeyID            = "RUNNER_KEY_ID"
+	EnvPrivateKeyFile   = "RUNNER_PRIVATE_KEY_FILE"
+	EnvJournalPath      = "RUNNER_JOURNAL_PATH"
 	EnvRunnerInstanceID = "RUNNER_INSTANCE_ID"
 )
 
 type Config struct {
-	ControlPlaneURL string
-	KeyID           string
-	PrivateKey      ed25519.PrivateKey
-	JournalPath     string
+	ControlPlaneURL  string
+	KeyID            string
+	PrivateKey       ed25519.PrivateKey
+	JournalPath      string
 	RunnerInstanceID string
 }
 
@@ -75,76 +75,7 @@ func Load(lookup func(string) (string, bool)) (*Config, error) {
 		zero(privateKey)
 		return nil, err
 	}
-	if !regexp.MustCompile(`^[a-f0-9]{32}package runnerconfig
-
-import (
-	"crypto/ed25519"
-	"errors"
-	"fmt"
-	"net"
-	"net/url"
-	"path/filepath"
-	"regexp"
-	"strings"
-
-	"github.com/sivasreeonline/orbit-engine/services/execution-runner/internal/runnerauth"
-)
-
-var keyIDPattern = regexp.MustCompile("^[A-Za-z0-9._:-]{1,128}$")
-
-const (
-	EnvControlPlaneURL = "RUNNER_CONTROL_PLANE_URL"
-	EnvKeyID           = "RUNNER_KEY_ID"
-	EnvPrivateKeyFile  = "RUNNER_PRIVATE_KEY_FILE"
-	EnvJournalPath     = "RUNNER_JOURNAL_PATH"
-	EnvRunnerInstanceID = "RUNNER_INSTANCE_ID"
-)
-
-type Config struct {
-	ControlPlaneURL string
-	KeyID           string
-	PrivateKey      ed25519.PrivateKey
-	JournalPath     string
-	RunnerInstanceID string
-}
-
-// Load reads the runner's explicit identity configuration. The lookup
-// function is injectable so validation can be tested without mutating process
-// environment. Secret contents are never included in returned errors.
-func Load(lookup func(string) (string, bool)) (*Config, error) {
-	if lookup == nil {
-		return nil, errors.New("runner environment lookup is required")
-	}
-
-	controlPlaneURL, err := requiredValue(lookup, EnvControlPlaneURL)
-	if err != nil {
-		return nil, err
-	}
-	if err := validateControlPlaneOrigin(controlPlaneURL); err != nil {
-		return nil, fmt.Errorf("%s: %w", EnvControlPlaneURL, err)
-	}
-
-	keyID, err := requiredValue(lookup, EnvKeyID)
-	if err != nil {
-		return nil, err
-	}
-	if !keyIDPattern.MatchString(keyID) {
-		return nil, fmt.Errorf("%s is invalid", EnvKeyID)
-	}
-
-	keyFile, err := requiredValue(lookup, EnvPrivateKeyFile)
-	if err != nil {
-		return nil, err
-	}
-	if !filepath.IsAbs(keyFile) {
-		return nil, fmt.Errorf("%s must be an absolute path", EnvPrivateKeyFile)
-	}
-	privateKey, err := runnerauth.LoadPrivateKeyFile(keyFile)
-	if err != nil {
-		return nil, fmt.Errorf("%s could not be loaded securely: %w", EnvPrivateKeyFile, err)
-	}
-
-	).MatchString(runnerInstanceID) {
+	if !runnerInstanceIDPattern.MatchString(runnerInstanceID) {
 		zero(privateKey)
 		return nil, fmt.Errorf("%s must be 32 lowercase hexadecimal characters", EnvRunnerInstanceID)
 	}
@@ -160,10 +91,10 @@ func Load(lookup func(string) (string, bool)) (*Config, error) {
 	}
 
 	return &Config{
-		ControlPlaneURL: controlPlaneURL,
-		KeyID:           keyID,
-		PrivateKey:      privateKey,
-		JournalPath:     journalPath,
+		ControlPlaneURL:  controlPlaneURL,
+		KeyID:            keyID,
+		PrivateKey:       privateKey,
+		JournalPath:      journalPath,
 		RunnerInstanceID: runnerInstanceID,
 	}, nil
 }
