@@ -638,7 +638,7 @@ func TestDockerSandboxPersistsCreateIntentBeforeDockerCreate(t *testing.T) {
 }
 
 func TestDockerSandboxRecordsCleanupOnlyAfterDockerConfirmsRemoval(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "lifecycle.jsonl")
+	path := privateJournalTestPath(t, "lifecycle.jsonl")
 	journal, err := sandboxjournal.Open(path)
 	if err != nil {
 		t.Fatal(err)
@@ -669,7 +669,7 @@ func TestDockerSandboxRecordsCleanupOnlyAfterDockerConfirmsRemoval(t *testing.T)
 }
 
 func TestDockerSandboxLeavesCreatedLifecyclePendingWhenRemovalFails(t *testing.T) {
-	journal, err := sandboxjournal.Open(filepath.Join(t.TempDir(), "lifecycle.jsonl"))
+	journal, err := sandboxjournal.Open(privateJournalTestPath(t, "lifecycle.jsonl"))
 	if err != nil {
 		t.Fatal(err)
 	}
